@@ -6,24 +6,23 @@ import 'package:mqtt_client/mqtt_server_client.dart';
 import 'package:path_provider/path_provider.dart';
 
 class MqttService {
-  // === MQTT 連線設定 ===
-  final MqttServerClient _client =
-      MqttServerClient('140.127.221.250', 'flutter_client');
+  // === MQTT 設定 ===
+  final _client = MqttServerClient('140.127.221.250', 'flutter_client');
   final String subTopic = 'GIOT-GW/UL/80029C1E38D2';
   final String pubTopic = 'GIOT-GW/DL/000080029c0ff65e';
   final String targetMac = '0000000020200014';
 
-  // === CSV 檔案設定 ===
+  // === CSV 設定 ===
   static const _csvFileName = 'petcare_history.csv';
 
   // === Streams ===
-  final _statusController = StreamController<bool>.broadcast();
-  Stream<bool> get statusStream => _statusController.stream;
+  final _statusCtrl = StreamController<bool>.broadcast();
+  Stream<bool> get statusStream => _statusCtrl.stream;
 
-  final _uplinkController = StreamController<Map<String, dynamic>>.broadcast();
-  Stream<Map<String, dynamic>> get uplinkStream => _uplinkController.stream;
+  final _uplinkCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get uplinkStream => _uplinkCtrl.stream;
 
-  // === 建構 ===
+  // === ctor ===
   MqttService() {
     _client.port = 1883;
     _client.logging(on: false);
@@ -33,19 +32,20 @@ class MqttService {
     _client.onSubscribed = _onSubscribed;
   }
 
-  // === 對外 API ===
+  // ─────────────────────────────────────────────────────────────
+  /// 外部 API
+  // ─────────────────────────────────────────────────────────────
   Future<void> connect() async {
     _client.connectionMessage = MqttConnectMessage()
         .withClientIdentifier('flutter_client')
         .startClean()
         .withWillQos(MqttQos.atLeastOnce);
-
     try {
       await _client.connect();
     } catch (e) {
       print('MQTT connect error: $e');
       _client.disconnect();
-      _statusController.add(false);
+      _statusCtrl.add(false);
     }
   }
 
@@ -67,83 +67,83 @@ class MqttService {
   }
 
   void dispose() {
-    _statusController.close();
-    _uplinkController.close();
+    _statusCtrl.close();
+    _uplinkCtrl.close();
     _client.disconnect();
   }
 
-  // === 私有回呼 ===
+  // ─────────────────────────────────────────────────────────────
+  /// 連線回呼
+  // ─────────────────────────────────────────────────────────────
   void _onConnected() async {
     print('MQTT 已連線');
-    _statusController.add(true);
+    _statusCtrl.add(true);
     _client.subscribe(subTopic, MqttQos.atMostOnce);
     _client.updates?.listen(_onMessage);
 
-    // 若 CSV 不存在，建立並加標題列
-    final file = await _getCsvFile();
-    if (!await file.exists()) {
-      await file.writeAsString(
-        'timestamp,temp,hum,sitting,standing,lying\n',
-        mode: FileMode.write,
+    // 若檔案不存在 → 建立＋標題列
+    final f = await _file;
+    if (!await f.exists()) {
+      await f.writeAsString(
+        'timestamp,temp,hum,sitting,standing,lying,miss\n',
       );
     }
   }
 
   void _onDisconnected() {
     print('MQTT 已斷線');
-    _statusController.add(false);
+    _statusCtrl.add(false);
   }
 
-  void _onSubscribed(String topic) => print('已訂閱主題：$topic');
+  void _onSubscribed(String topic) => print('已訂閱：$topic');
 
-  void _onMessage(List<MqttReceivedMessage<MqttMessage>> c) async {
-    final msg = c.first.payload as MqttPublishMessage;
-    final payload =
-        MqttPublishPayload.bytesToStringAsString(msg.payload.message);
+  // ─────────────────────────────────────────────────────────────
+  /// 收到上行資料
+  // ─────────────────────────────────────────────────────────────
+  void _onMessage(List<MqttReceivedMessage<MqttMessage>> events) async {
+    final msg = events.first.payload as MqttPublishMessage;
+    final payload = MqttPublishPayload.bytesToStringAsString(msg.payload.message);
 
     if (!payload.contains('"macAddr":"$targetMac"')) return;
 
     try {
-      final data = json.decode(payload);
-      final first = (data is List ? data.first : data) as Map<String, dynamic>;
-      final hex = first['data'] as String; // 20 個 hex 字元
+      final obj = json.decode(payload);
+      final map = (obj is List ? obj.first : obj) as Map<String, dynamic>;
+      final hex = map['data'] as String;           // 24 hex chars
 
-      if (hex.length != 20) {
-        print('[Error] 上行長度錯誤：$hex');
+      if (hex.length != 24) {
+        print('[Error] 長度錯誤：$hex');
         return;
       }
 
-      final temp = int.parse(hex.substring(0, 4), radix: 16) / 100.0;
-      final hum = int.parse(hex.substring(4, 8), radix: 16) / 100.0;
+      final temp    = int.parse(hex.substring(0,  4), radix: 16) / 100;
+      final hum     = int.parse(hex.substring(4,  8), radix: 16) / 100;
       final sitting = int.parse(hex.substring(8, 12), radix: 16);
-      final standing = int.parse(hex.substring(12, 16), radix: 16);
-      final lying = int.parse(hex.substring(16, 20), radix: 16);
+      final standing= int.parse(hex.substring(12,16), radix: 16);
+      final lying   = int.parse(hex.substring(16,20), radix: 16);
+      final miss    = int.parse(hex.substring(20,24), radix: 16); // 0=在家
 
-      // 推送給 UI
-      _uplinkController.add({
+      // 推送 UI
+      _uplinkCtrl.add({
         'temperature': temp,
-        'humidity': hum,
-        'sitting': sitting,
-        'standing': standing,
-        'lying': lying,
+        'humidity'   : hum,
+        'sitting'    : sitting,
+        'standing'   : standing,
+        'lying'      : lying,
+        'miss'       : miss,
       });
 
-      // 追加到 CSV
-      await _appendCsv(
-        DateTime.now(),
-        temp,
-        hum,
-        sitting,
-        standing,
-        lying,
-      );
+      // 寫入 CSV
+      await _appendCsv(DateTime.now(), temp, hum, sitting, standing, lying, miss);
     } catch (e) {
       print('[Error] 解析失敗：$e');
     }
   }
 
-  // === CSV I/O ===
-  Future<File> _getCsvFile() async {
+  // ─────────────────────────────────────────────────────────────
+  /// CSV I/O
+  // ─────────────────────────────────────────────────────────────
+  Future<File> get _file async {
     final dir = await getApplicationDocumentsDirectory();
     return File('${dir.path}/$_csvFileName');
   }
@@ -155,10 +155,11 @@ class MqttService {
     int sit,
     int stand,
     int lie,
+    int miss,
   ) async {
-    final file = await _getCsvFile();
+    final f = await _file;
     final line =
-        '${ts.toIso8601String()},$temp,$hum,$sit,$stand,$lie\n';
-    await file.writeAsString(line, mode: FileMode.append);
+        '${ts.toIso8601String()},$temp,$hum,$sit,$stand,$lie,$miss\n';
+    await f.writeAsString(line, mode: FileMode.append);
   }
 }

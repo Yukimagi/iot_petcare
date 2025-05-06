@@ -134,7 +134,7 @@ class _SensorPageState extends State<SensorPage> {
   bool _connected = false;
 
   double? _temp, _hum;
-  int? _sit, _stand, _lying;
+  int? _sit, _stand, _lying, _miss;          // ← 新增 _miss
 
   @override
   void initState() {
@@ -142,11 +142,12 @@ class _SensorPageState extends State<SensorPage> {
     _mqtt.statusStream.listen((c) => setState(() => _connected = c));
     _mqtt.uplinkStream.listen((d) {
       setState(() {
-        _temp = d['temperature'];
-        _hum = d['humidity'];
-        _sit = d['sitting'];
+        _temp  = d['temperature'];
+        _hum   = d['humidity'];
+        _sit   = d['sitting'];
         _stand = d['standing'];
         _lying = d['lying'];
+        _miss  = d['miss'];                  // ← 取回 miss
       });
     });
     _mqtt.connect();
@@ -168,32 +169,60 @@ class _SensorPageState extends State<SensorPage> {
       ),
     );
 
+    // ★ 在家 / 不見 Badge
+    final missBadge = Chip(
+      label: Text(
+        (_miss ?? 1) == 0 ? '在家' : '不見！',
+        style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
+      backgroundColor:
+          (_miss ?? 1) == 0 ? Colors.green.shade100 : Colors.red.shade300,
+      avatar: Icon(
+        (_miss ?? 1) == 0 ? Icons.pets : Icons.search_off,
+        color: (_miss ?? 1) == 0 ? Colors.green : Colors.red.shade900,
+      ),
+    );
+
     return Scaffold(
       appBar: AppBar(title: const Text('LoRa 感測')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            InfoCard(child: Row(children: [const Text('MQTT 狀態 : '), statusChip])),
             InfoCard(
-              child: _temp == null
-                  ? const Text('等待上行資料…', style: TextStyle(fontSize: 18))
-                  : Column(
+              child: Row(children: [const Text('MQTT 狀態 : '), statusChip]),
+            ),
+            InfoCard(
+              child: Column(
+                children: [
+                  Row(
+                    children: [const Text('在家狀態 : '), missBadge],
+                  ),
+                  const SizedBox(height: 12),
+                  if (_temp == null)
+                    const Text('等待上行資料…', style: TextStyle(fontSize: 18))
+                  else ...[
+                    _ValueRow(
+                        icon: Icons.thermostat,
+                        label: '溫度',
+                        value: '${_temp!.toStringAsFixed(2)} °C'),
+                    const SizedBox(height: 8),
+                    _ValueRow(
+                        icon: Icons.water_drop,
+                        label: '濕度',
+                        value: '${_hum!.toStringAsFixed(2)} %'),
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _ValueRow(icon: Icons.thermostat, label: '溫度', value: '${_temp!.toStringAsFixed(2)} °C'),
-                        const SizedBox(height: 8),
-                        _ValueRow(icon: Icons.water_drop, label: '濕度', value: '${_hum!.toStringAsFixed(2)} %'),
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            _PostureBadge('坐', _sit),
-                            _PostureBadge('站', _stand),
-                            _PostureBadge('躺', _lying),
-                          ],
-                        ),
+                        _PostureBadge('坐', _sit),
+                        _PostureBadge('站', _stand),
+                        _PostureBadge('躺', _lying),
                       ],
                     ),
+                  ],
+                ],
+              ),
             ),
             const SizedBox(height: 12),
             ElevatedButton.icon(
