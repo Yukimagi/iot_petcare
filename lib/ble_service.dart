@@ -4,8 +4,8 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class BleService {
-  // ★ 1. 依你的 Arduino 設定
-  static const _deviceName   = 'petcare'; // ← 參考 advdata.addCompleteName("petcare")
+  // ★ 1. 依你的 Arduino/Nordic 程式設定
+  static const _deviceName   = 'petcare'; // 參考 advdata.addCompleteName("petcare")
   static const _serviceUuid  = '6E400001-B5A3-F393-E0A9-E50E24DCCA9E';
   static const _rxUuid       = '6E400002-B5A3-F393-E0A9-E50E24DCCA9E'; // 寫指令
   static const _txUuid       = '6E400003-B5A3-F393-E0A9-E50E24DCCA9E'; // 通知
@@ -16,6 +16,10 @@ class BleService {
 
   final _dataCtrl = StreamController<Map<String, double>>.broadcast();
   Stream<Map<String, double>> get dataStream => _dataCtrl.stream;
+
+  /// 新增：裝置「完整字串」回傳
+  final _rawCtrl = StreamController<String>.broadcast();
+  Stream<String> get rawStream => _rawCtrl.stream;
 
   // ---- 私有變數 ---------------------------------------------------------
   StreamSubscription<List<ScanResult>>? _scanSub;
@@ -49,19 +53,19 @@ class BleService {
     });
   }
 
-  /// (連線後) 主動寫「查詢溫濕度」
-  Future<void> queryTemperatureHumidity() async {
+  /// 通用：寫入任意指令
+  Future<void> sendCommand(String cmd) async {
     if (_rxChar == null) return;
     try {
-      await _rxChar!.write(
-        utf8.encode('查詢溫濕度'),
-        withoutResponse: false,
-      );
-      _log('>> 查詢指令已送出');
+      await _rxChar!.write(utf8.encode(cmd), withoutResponse: false);
+      _log('>> 已送出指令: $cmd');
     } catch (e) {
       _log('寫入失敗 $e');
     }
   }
+
+  /// （保留舊函式）查詢溫濕度
+  Future<void> queryTemperatureHumidity() => sendCommand('查詢溫濕度');
 
   /// 關閉所有資源
   Future<void> dispose() async {
@@ -70,6 +74,7 @@ class BleService {
     if (_device != null) await _device!.disconnect();
     await _statusCtrl.close();
     await _dataCtrl.close();
+    await _rawCtrl.close();
   }
 
   // ---- 核心流程 ---------------------------------------------------------
@@ -77,8 +82,8 @@ class BleService {
     _device = dev;
     try {
       await dev.connect(autoConnect: false, timeout: const Duration(seconds: 8));
-    } catch (e) {
-      // Already connected 会丢 IllegalState；忽略即可
+    } catch (_) {
+      // Already connected 會丟 IllegalState；忽略即可
     }
     _statusCtrl.add(true);
 
@@ -103,13 +108,15 @@ class BleService {
     await _txChar!.setNotifyValue(true);
     _txNotifySub = _txChar!.onValueReceived!.listen(_handleNotify);
 
-    // (3) 立刻查詢一次
+    // (3) 連線後自動查詢一次
     await queryTemperatureHumidity();
   }
 
   void _handleNotify(List<int> value) {
     final text = utf8.decode(value);
-    // 解析：「濕度: 55.00%	溫度: 23.45°C」
+    _rawCtrl.add(text); // ★ 推送原始字串給 UI
+
+    // 嘗試解析：「濕度: 55.00%	溫度: 23.45°C」
     final reg = RegExp(r'濕度:\s*([\d.]+).*?溫度:\s*([\d.]+)');
     final m   = reg.firstMatch(text);
     if (m != null) {
@@ -127,17 +134,16 @@ class BleService {
     // === 1. 請求「位置權限」（Android 11↓ 掃描 BLE 必須） ===
     final status = await Permission.locationWhenInUse.request();
     if (!status.isGranted) {
-      throw Exception('需要位置權限才能掃描藍牙裝置');
+      throw Exception('需要位置權限才能掃描藍芽裝置');
     }
 
-    // === 2. 確保藍牙已打開 ===
-    await FlutterBluePlus.turnOn(); // 會顯示系統藍牙開啟對話框
+    // === 2. 確保藍芽已打開 ===
+    await FlutterBluePlus.turnOn(); // 顯示系統藍芽開啟對話框
     while (await FlutterBluePlus.adapterState.first !=
         BluetoothAdapterState.on) {
       await Future.delayed(const Duration(milliseconds: 200));
     }
   }
-
 
   void _log(Object o) => print('[BleService] $o');
 }
