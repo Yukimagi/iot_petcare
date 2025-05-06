@@ -8,7 +8,7 @@ class MqttService {
       MqttServerClient('140.127.221.250', 'flutter_client');
   final String subTopic = 'GIOT-GW/UL/80029C1E38D2';
   final String pubTopic = 'GIOT-GW/DL/000080029c0ff65e';
-  final String targetMac = '0000000020200006';//要改14
+  final String targetMac = '0000000020200014';//要改14
 
   // 將狀態也做成一個 Stream
   final _statusController = StreamController<bool>.broadcast();
