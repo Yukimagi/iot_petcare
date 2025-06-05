@@ -1,6 +1,6 @@
 # iot_petcare
 
-ppt link:[https://www.canva.com/design/DAGiWbVya7Y/epTqMZWxLdh2iSQFA_WS_A/edit?utm_content=DAGiWbVya7Y&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton](https://www.canva.com/design/DAGiWbVya7Y/epTqMZWxLdh2iSQFA_WS_A/edit?utm_content=DAGiWbVya7Y&utm_campaign=designshare&utm_medium=link2&utm_source=sharebutton)
+ppt link:https://www.canva.com/design/DAGiWbVya7Y/eNR1R1VxWUlMwQbdwf341w/view?utm_content=DAGiWbVya7Y&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=hc03be6bfe2
 
 A new Flutter project.
 
